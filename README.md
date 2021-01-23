@@ -1,4 +1,4 @@
 # esphome heater
 ![foto](j12864.jpg)
 
-Custom display component for Chinese J12864 module on ST7920
+Custom display component for J12864 Chinese character dot matrix LCD display module on ST7920
