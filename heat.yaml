@@ -33,10 +33,10 @@ web_server:
   port: 80
 
 globals:
-   - id: counter_min
-     type: int
+   - id: counter_sec
+     type: unsigned int
      restore_value: no
-     initial_value: '0'
+     initial_value: '0'     
    - id: device_mode
      type: int
      restore_value: no
@@ -61,30 +61,28 @@ script:
               id(device_mode) = 0;
               auto call = id(my_climate).make_call();
                 call.set_mode("AUTO");
-                call.set_target_temperature_low(30);  //УСТАВКА КИПЯЧЕНИЯ минимальная
-                call.set_target_temperature_high(31); //УСТАВКА КИПЯЧЕНИЯ максимальная
+                call.set_away(false);
                 call.perform();
               id(relay_2).turn_on();
-              id(counter_min) = 0;
+              id(counter_sec) = 0;
             }
             if (id(device_mode) == 0 )
             {
               if (id(temp_1).state > id(my_climate).target_temperature_low)
               {
                 id(device_mode) = 1;
-                id(counter_min) = 0;
+                id(counter_sec) = 0;
               };
             }
             if (id(device_mode) == 1 )
             {
-              if (id(counter_min) == 5) //ВРЕМЯ КИПЯЧЕНИЯ
+              if (id(counter_sec) >= 5 * 60) //ВРЕМЯ КИПЯЧЕНИЯ
               {
                 id(device_mode) = 2;
                 id(relay_2).turn_off();
-                id(counter_min) = 0;
+                id(counter_sec) = 0;
                 auto call = id(my_climate).make_call();
-                  call.set_target_temperature_low(28);  //УСТАВКА ОЖИДАНИЯ минимальная
-                  call.set_target_temperature_high(29); //УСТАВКА ОЖИДАНИЯ минимальная
+                  call.set_away(true);
                   call.perform();
               }
             }
@@ -104,9 +102,10 @@ display:
   - platform: ST7920_spi
     reset_pin: GPIO19
     cs_pin: GPIO2
+    rotation: 180°
     id: my_display
     lambda: |-
-        it.printf(0, 14, id(my_font), "%02d:%02d", id(counter_min) / 60, id(counter_min) % 60);
+        it.printf(0, 14, id(my_font), "%02d:%02d", id(counter_sec) / 60 / 60, id(counter_sec) / 60 % 60);
         
         if (id(device_mode) == 0 )    
             it.print(74, 3, id(my_font_s), "HEATING");
@@ -177,22 +176,24 @@ switch:
     restore_mode: ALWAYS_OFF
 
 interval:
-  - interval: 30s
+  - interval: 1s
     then:
-      - switch.turn_on: ntc_vcc
-      - component.update: adc_sensor
-      - switch.turn_off: ntc_vcc
-  - interval: 1min
-    then:
-      - lambda: 'id(counter_min) += 1;'
+      - lambda: 'id(counter_sec) += 1;'
 
 climate:
   - platform: bang_bang
     name: "Bang Bang Climate Controller"
     sensor: temp_1
-    default_target_temperature_low: 26 °C
-    default_target_temperature_high: 28 °C
+    default_target_temperature_low: 30 °C  #УСТАВКА КИПЯЧЕНИЯ минимальная
+    default_target_temperature_high: 31 °C #УСТАВКА КИПЯЧЕНИЯ максимальная
     id: my_climate
+    away_config:
+      default_target_temperature_low: 27 °C  #УСТАВКА ОЖИДАНИЯ минимальная
+      default_target_temperature_high: 28 °C #УСТАВКА ОЖИДАНИЯ минимальная
+    visual:
+      min_temperature: 20 °C
+      max_temperature: 140 °C
+      temperature_step: 1 °C
     heat_action:
       - switch.turn_on: relay_1
     idle_action:
