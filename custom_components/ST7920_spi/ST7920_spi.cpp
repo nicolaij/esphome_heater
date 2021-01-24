@@ -22,6 +22,7 @@ namespace esphome
     {
       LOG_DISPLAY("", "SPI ST7920", this);
       ESP_LOGCONFIG(TAG, "  Model: %s", this->model_str_());
+      ESP_LOGCONFIG(TAG, "  Rotation: %d", this->rotation_);
       if (this->cs_)
         LOG_PIN("  CS Pin: ", this->cs_);
       if (this->reset_pin_)
