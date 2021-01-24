@@ -1,5 +1,5 @@
 esphome:
-  name: thermo2
+  name: heater
   platform: ESP32
   board: nodemcu-32s
   platformio_options:
@@ -11,7 +11,7 @@ wifi:
 
   # Enable fallback hotspot (captive portal) in case wifi connection fails
   ap:
-    ssid: "thermo2 Fallback Hotspot"
+    ssid: "heater Fallback Hotspot"
     password: "12345678"
     
   reboot_timeout: 0s
@@ -21,7 +21,7 @@ captive_portal:
 
 # Enable logging
 logger:
-  level: DEBUG
+  level: VERBOSE
     
 # Enable Home Assistant API
 api:
@@ -37,7 +37,6 @@ globals:
      type: int
      restore_value: no
      initial_value: '0'
-   #device_mode: -1 - инициализация, 0 - разогрев, 1- кипячение 130, 2 - поддержание 80
    - id: device_mode
      type: int
      restore_value: no
@@ -52,6 +51,43 @@ binary_sensor:
     filters:
       - delayed_on: 50ms
     name: "Switch button"
+
+script:
+  - id: check_mode
+    then:
+      - lambda: |-
+            if (id(device_mode) == -1 )
+            {
+              id(device_mode) = 0;
+              auto call = id(my_climate).make_call();
+                call.set_mode("AUTO");
+                call.set_target_temperature_low(30);  //УСТАВКА КИПЯЧЕНИЯ минимальная
+                call.set_target_temperature_high(31); //УСТАВКА КИПЯЧЕНИЯ максимальная
+                call.perform();
+              id(relay_2).turn_on();
+              id(counter_min) = 0;
+            }
+            if (id(device_mode) == 0 )
+            {
+              if (id(temp_1).state > id(my_climate).target_temperature_low)
+              {
+                id(device_mode) = 1;
+                id(counter_min) = 0;
+              };
+            }
+            if (id(device_mode) == 1 )
+            {
+              if (id(counter_min) == 5) //ВРЕМЯ КИПЯЧЕНИЯ
+              {
+                id(device_mode) = 2;
+                id(relay_2).turn_off();
+                id(counter_min) = 0;
+                auto call = id(my_climate).make_call();
+                  call.set_target_temperature_low(28);  //УСТАВКА ОЖИДАНИЯ минимальная
+                  call.set_target_temperature_high(29); //УСТАВКА ОЖИДАНИЯ минимальная
+                  call.perform();
+              }
+            }
 
 font:
   - file: "tahoma.ttf"   
@@ -79,26 +115,25 @@ display:
         if (id(device_mode) == 2  )    
             it.print(74, 3, id(my_font_s), "WAITING");
         
-        if (id(relay1).state)
+        if (id(relay_1).state)
         {
             it.filled_rectangle(70, 16, 20, 9);
             it.print(77, 14, id(my_font_s), COLOR_OFF, "1");
         }
-        if (id(relay2).state)
+        if (id(relay_2).state)
         {
             it.filled_rectangle(100, 16, 20, 9);
             it.print(107, 14, id(my_font_s), COLOR_OFF, "2");
         }
-        
-            
+
         it.printf(1, 45, id(my_font), "%3.0f°C", id(temp_1).state);
         
         it.print(90, 34, id(my_font_s), "Target:");
         
-        if (id(relay1).state && id(device_mode) > 0)
-            it.printf(90, 52, id(my_font_s), "%3.0f°C", id(regul).target_temperature_high);
+        if (id(relay_1).state && id(device_mode) > 0)
+            it.printf(90, 52, id(my_font_s), "%3.0f°C", id(my_climate).target_temperature_high);
         else
-            it.printf(90, 52, id(my_font_s), "%3.0f°C", id(regul).target_temperature_low);
+            it.printf(90, 52, id(my_font_s), "%3.0f°C", id(my_climate).target_temperature_low);
 
 dallas:
   - pin: GPIO32
@@ -113,6 +148,11 @@ sensor:
     name: "Temperature #1"
     address: 0xB4041590482EFF28
     id: temp_1
+    on_value:
+      then:
+        - script.execute: check_mode
+        - component.update: my_display
+
   - platform: adc
     attenuation: 0db
     pin: GPIO36
@@ -127,12 +167,14 @@ switch:
     pin:
        number: GPIO13
        inverted: true
-    id: relay1
+    id: relay_1
+    restore_mode: ALWAYS_OFF
   - platform: gpio
     pin:
        number: GPIO15
        inverted: true
-    id: relay2
+    id: relay_2
+    restore_mode: ALWAYS_OFF
 
 interval:
   - interval: 30s
@@ -142,36 +184,7 @@ interval:
       - switch.turn_off: ntc_vcc
   - interval: 1min
     then:
-      - lambda: |-
-            id(counter_min) += 1;
-            if (id(device_mode) == -1 )
-            {
-                id(device_mode) = 0;
-                id(regul).target_temperature_low = 27;
-                id(regul).target_temperature_high = 29;
-                id(relay2).turn_on();
-                id(counter_min) = 0;
-            }
-            if (id(device_mode) == 0 )
-            {
-                if (id(temp_1).state > id(regul).target_temperature_low)
-                {
-                    id(device_mode) = 1;
-                    id(counter_min) = 0;
-                };
-            }
-            if (id(device_mode) == 1 )
-            {
-                if (id(counter_min) == 5)
-                {
-                    id(device_mode) = 2;
-                    id(relay2).turn_off();
-                    id(counter_min) = 0;
-                    id(regul).target_temperature_low = 30;
-                    id(regul).target_temperature_high = 31;
-                }
-            }
-      - component.update: my_display
+      - lambda: 'id(counter_min) += 1;'
 
 climate:
   - platform: bang_bang
@@ -179,11 +192,9 @@ climate:
     sensor: temp_1
     default_target_temperature_low: 26 °C
     default_target_temperature_high: 28 °C
-    id: regul
+    id: my_climate
     heat_action:
-      - switch.turn_on: relay1
-      - component.update: my_display
+      - switch.turn_on: relay_1
     idle_action:
-      - switch.turn_off: relay1
-      - component.update: my_display
+      - switch.turn_off: relay_1
       
