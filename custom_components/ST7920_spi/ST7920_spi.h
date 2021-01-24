@@ -10,7 +10,7 @@ namespace esphome
   {
     class ST7920Component : public ST7920_base::ST7920,
                             public spi::SPIDevice<spi::BIT_ORDER_MSB_FIRST, spi::CLOCK_POLARITY_LOW, spi::CLOCK_PHASE_TRAILING,
-                                                  spi::DATA_RATE_200KHZ> //DATA_RATE_500KHZ
+                                                  (spi::SPIDataRate)500000> //DATA_RATE_500KHZ
     {
     public:
       void setup() override;
