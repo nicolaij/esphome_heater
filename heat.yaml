@@ -3,34 +3,34 @@ esphome:
   platform: ESP32
   board: nodemcu-32s
   platformio_options:
-     upload_speed: 1500000
+     upload_speed: 921600
 
-wifi:
-  ssid: "test"
-  password: "12345678"
+#wifi:
+#  ssid: "test"
+#  password: "12345678"
 
   # Enable fallback hotspot (captive portal) in case wifi connection fails
-  ap:
-    ssid: "heater Fallback Hotspot"
-    password: "12345678"
+#  ap:
+#    ssid: "heater Fallback Hotspot"
+#    password: "12345678"
     
-  reboot_timeout: 0s
+#  reboot_timeout: 0s
 #  power_save_mode: HIGH
 
-captive_portal:
+#captive_portal:
 
 # Enable logging
 logger:
   level: DEBUG
     
 # Enable Home Assistant API
-api:
+#api:
 
-ota:
+#ota:
 
 # Активация web сервера
-web_server:
-  port: 80
+#web_server:
+#  port: 80
 
 globals:
    - id: counter_sec
@@ -45,7 +45,7 @@ globals:
 binary_sensor:
   - platform: gpio
     pin:
-      number: GPIO39
+      number: GPIO0
       inverted: true
       mode: INPUT_PULLUP
     filters:
@@ -76,7 +76,7 @@ script:
             }
             if (id(device_mode) == 1 )
             {
-              if (id(counter_sec) >= 5 * 60) //ВРЕМЯ КИПЯЧЕНИЯ
+              if (id(counter_sec) >= 30 * 60) //ВРЕМЯ КИПЯЧЕНИЯ
               {
                 id(device_mode) = 2;
                 id(relay_2).turn_off();
@@ -95,13 +95,13 @@ font:
     id: my_font_s
     size: 10   
 spi:
-  clk_pin: GPIO21
-  mosi_pin: GPIO22
+  clk_pin: GPIO26
+  mosi_pin: GPIO25
   
 display:
   - platform: ST7920_spi
-    reset_pin: GPIO19
-    cs_pin: GPIO2
+    reset_pin: GPIO27
+    cs_pin: GPIO33
     rotation: 180°
     id: my_display
     lambda: |-
@@ -124,7 +124,7 @@ display:
             it.filled_rectangle(100, 16, 20, 9);
             it.print(107, 14, id(my_font_s), COLOR_OFF, "2");
         }
-
+        
         it.printf(1, 45, id(my_font), "%3.0f°C", id(temp_1).state);
         
         it.print(90, 34, id(my_font_s), "Target:");
@@ -133,48 +133,70 @@ display:
             it.printf(90, 52, id(my_font_s), "%3.0f°C", id(my_climate).target_temperature_high);
         else
             it.printf(90, 52, id(my_font_s), "%3.0f°C", id(my_climate).target_temperature_low);
+            
+        //it.printf(70, 30, id(my_font_s), "%.3f", id(temp_1).raw_state);
+        //it.printf(100, 30, id(my_font_s), "%.1f", id(temp_2).state);
+        
 
-dallas:
-  - pin: GPIO32
-    update_interval: 10s
+#dallas:
+#  - pin: GPIO32
+#    update_interval: 10s
 
 # Individual sensors
 sensor:   
   - platform: uptime
     name: Uptime Sensor
     update_interval: 5min
-  - platform: dallas
-    name: "Temperature #1"
-    address: 0xB4041590482EFF28
+#  - platform: dallas
+#    name: "Temperature #1"
+#    address: 0xB4041590482EFF28
+#    id: temp_2
+  - platform: adc
+    attenuation: 0db
+    pin: GPIO34
     id: temp_1
+    update_interval: 5s
+    filters:
+#      - median:
+#            window_size: 6
+#            send_every: 3
+#            send_first_at: 2
+      - calibrate_linear:
+#          - 0.371 -> 0.40
+#          - 1.869 -> 1.6
+          - 0.150 -> 43.00
+          - 0.730 -> 136.0 
     on_value:
       then:
         - script.execute: check_mode
         - component.update: my_display
 
-  - platform: adc
-    attenuation: 0db
-    pin: GPIO36
-    id: adc_sensor
-    update_interval: never
-
 switch:
   - platform: gpio
-    pin: GPIO33
-    id: ntc_vcc
-  - platform: gpio
     pin:
-       number: GPIO13
+       number: GPIO16
        inverted: true
     id: relay_1
     restore_mode: ALWAYS_OFF
   - platform: gpio
     pin:
-       number: GPIO15
+       number: GPIO17
        inverted: true
     id: relay_2
     restore_mode: ALWAYS_OFF
-
+  - platform: gpio
+    pin:
+       number: GPIO18
+       inverted: true
+    id: relay_3
+    restore_mode: ALWAYS_OFF
+  - platform: gpio
+    pin:
+       number: GPIO15
+       inverted: false
+    id: ref_adc
+    restore_mode: ALWAYS_ON
+    
 interval:
   - interval: 1s
     then:
@@ -184,12 +206,12 @@ climate:
   - platform: bang_bang
     name: "Bang Bang Climate Controller"
     sensor: temp_1
-    default_target_temperature_low: 30 °C  #УСТАВКА КИПЯЧЕНИЯ минимальная
-    default_target_temperature_high: 31 °C #УСТАВКА КИПЯЧЕНИЯ максимальная
+    default_target_temperature_low: 127 °C  #УСТАВКА КИПЯЧЕНИЯ минимальная
+    default_target_temperature_high: 133 °C #УСТАВКА КИПЯЧЕНИЯ максимальная
     id: my_climate
     away_config:
-      default_target_temperature_low: 27 °C  #УСТАВКА ОЖИДАНИЯ минимальная
-      default_target_temperature_high: 28 °C #УСТАВКА ОЖИДАНИЯ минимальная
+      default_target_temperature_low: 77 °C  #УСТАВКА ОЖИДАНИЯ минимальная
+      default_target_temperature_high: 83 °C #УСТАВКА ОЖИДАНИЯ минимальная
     visual:
       min_temperature: 20 °C
       max_temperature: 140 °C
