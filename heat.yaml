@@ -41,6 +41,30 @@ globals:
      type: int
      restore_value: no
      initial_value: '-1'
+   - id: display_menu
+     type: int
+     restore_value: no
+     initial_value: '0'
+   - id: boiling_time
+     type: unsigned int
+     restore_value: yes
+     initial_value: '1800'
+   - id: boiling_temperature_low
+     type: float
+     restore_value: yes
+     initial_value: '125'
+   - id: boiling_temperature_high
+     type: float
+     restore_value: yes
+     initial_value: '135'
+   - id: waiting_temperature_low
+     type: float
+     restore_value: yes
+     initial_value: '75'
+   - id: waiting_temperature_high
+     type: float
+     restore_value: yes
+     initial_value: '85'
 
 binary_sensor:
   - platform: gpio
@@ -51,6 +75,92 @@ binary_sensor:
     filters:
       - delayed_on: 50ms
     name: "Switch button"
+    on_click:
+      min_length: 50ms
+      max_length: 350ms
+      then:
+        - lambda: |-
+            id(display_menu) +=1; 
+            if (id(display_menu) > 7) id(display_menu) = 0;
+        - logger.log: "Click"
+  - platform: gpio
+    pin:
+      number: GPIO32
+      inverted: true
+      mode: INPUT_PULLUP
+    name: "Encoder1 button"
+    on_click:
+      min_length: 50ms
+      max_length: 450ms
+      then:
+        - lambda: |-
+            switch(id(display_menu))
+            {
+                case 0:
+                  id(display_menu) = 1;
+                  id(rotary_encoder1).set_min_value(1);
+                  id(rotary_encoder1).set_max_value(7);
+                  id(rotary_encoder1).set_value(id(display_menu));
+                break;
+                case 1:
+                  id(display_menu) = 0;
+                break;
+                case 2:
+                  id(display_menu) = id(display_menu) * 10;
+                  id(rotary_encoder1).set_min_value(50);
+                  id(rotary_encoder1).set_max_value(150);                
+                  id(rotary_encoder1).set_value(id(boiling_temperature_low));
+                break;
+                case 3:
+                  id(display_menu) = id(display_menu) * 10;
+                  id(rotary_encoder1).set_min_value(50);
+                  id(rotary_encoder1).set_max_value(150);   
+                  id(rotary_encoder1).set_value(id(boiling_temperature_high));
+                break;
+                case 4:
+                  id(display_menu) = id(display_menu) * 10;
+                  id(rotary_encoder1).set_min_value(0);
+                  id(rotary_encoder1).set_max_value(999);
+                  id(rotary_encoder1).set_value(id(boiling_time) / 60);
+                break;
+                case 5:
+                  id(display_menu) = id(display_menu) * 10;
+                  id(rotary_encoder1).set_min_value(50);
+                  id(rotary_encoder1).set_max_value(150);   
+                  id(rotary_encoder1).set_value(id(waiting_temperature_low));
+                break;
+                case 6:
+                  id(display_menu) = id(display_menu) * 10;
+                  id(rotary_encoder1).set_min_value(50);
+                  id(rotary_encoder1).set_max_value(150);   
+                  id(rotary_encoder1).set_value(id(waiting_temperature_high));
+                break;
+                case 7:
+                  id(display_menu) = 0;
+                  id(device_mode) = -1;
+                break;
+                default:  
+                  id(display_menu) = id(display_menu) / 10;
+                  id(rotary_encoder1).set_min_value(1);
+                  id(rotary_encoder1).set_max_value(7);
+                  id(rotary_encoder1).set_value(id(display_menu));                  
+                break;
+            };
+            if (id(device_mode) < 2 )
+            {
+                auto call = id(my_climate).make_call();
+                  call.set_target_temperature_low(id(boiling_temperature_low));
+                  call.set_target_temperature_high(id(boiling_temperature_high));
+                  call.perform();
+            }else
+            {
+                auto call = id(my_climate).make_call();
+                  call.set_target_temperature_low(id(waiting_temperature_low));
+                  call.set_target_temperature_high(id(waiting_temperature_high));
+                  call.perform();
+            }
+        - component.update: my_display  
+
 
 script:
   - id: check_mode
@@ -61,12 +171,13 @@ script:
               id(device_mode) = 0;
               auto call = id(my_climate).make_call();
                 call.set_mode("AUTO");
-                call.set_away(false);
+                call.set_target_temperature_low(id(boiling_temperature_low));
+                call.set_target_temperature_high(id(boiling_temperature_high));
                 call.perform();
               id(relay_2).turn_on();
               id(counter_sec) = 0;
             }
-            if (id(device_mode) == 0 )
+            if (id(device_mode) == 0)
             {
               if (id(temp_1).state > id(my_climate).target_temperature_low)
               {
@@ -76,13 +187,14 @@ script:
             }
             if (id(device_mode) == 1 )
             {
-              if (id(counter_sec) >= 30 * 60) //ВРЕМЯ КИПЯЧЕНИЯ
+              if (id(counter_sec) >= id(boiling_time))
               {
                 id(device_mode) = 2;
                 id(relay_2).turn_off();
                 id(counter_sec) = 0;
                 auto call = id(my_climate).make_call();
-                  call.set_away(true);
+                  call.set_target_temperature_low(id(waiting_temperature_low));
+                  call.set_target_temperature_high(id(waiting_temperature_high));
                   call.perform();
               }
             }
@@ -93,7 +205,7 @@ font:
     size: 26                
   - file: "tahoma.ttf"   
     id: my_font_s
-    size: 10   
+    size: 10
 spi:
   clk_pin: GPIO26
   mosi_pin: GPIO25
@@ -105,45 +217,129 @@ display:
     rotation: 180°
     id: my_display
     lambda: |-
-        it.printf(0, 14, id(my_font), "%02d:%02d", id(counter_sec) / 60 / 60, id(counter_sec) / 60 % 60);
-        
-        if (id(device_mode) == 0 )    
-            it.print(74, 3, id(my_font_s), "HEATING");
-        if (id(device_mode) == 1  )    
-            it.print(74, 3, id(my_font_s), "BOILING");
-        if (id(device_mode) == 2  )    
-            it.print(74, 3, id(my_font_s), "WAITING");
-        
-        if (id(relay_1).state)
+        if(id(display_menu) == 0)
         {
-            it.filled_rectangle(70, 16, 20, 9);
-            it.print(77, 14, id(my_font_s), COLOR_OFF, "1");
-        }
-        if (id(relay_2).state)
+          it.printf(1, 0, id(my_font), "%02d:%02d", id(counter_sec) / 60 / 60, id(counter_sec) / 60 % 60);
+          
+          if (id(device_mode) == 0 )    
+              it.print(80, 3, id(my_font_s), "HEATING");
+          if (id(device_mode) == 1  )    
+              it.print(80, 3, id(my_font_s), "BOILING");
+          if (id(device_mode) == 2  )    
+              it.print(80, 3, id(my_font_s), "WAITING");
+          
+          if (id(relay_1).state)
+          {
+              it.filled_rectangle(77, 16, 20, 9);
+              it.print(85, 14, id(my_font_s), COLOR_OFF, "1");
+          }
+          if (id(relay_2).state)
+          {
+              it.filled_rectangle(105, 16, 20, 9);
+              it.print(113, 14, id(my_font_s), COLOR_OFF, "2");
+          }
+          
+          it.printf(1, 34, id(my_font), "%3.0f°C", id(temp_1).state);
+          
+          it.print(90, 34, id(my_font_s), "Target:");
+          
+          if (id(relay_1).state && id(device_mode) > 0)
+              it.printf(90, 52, id(my_font_s), "%3.0f°C", id(my_climate).target_temperature_high);
+          else
+              it.printf(90, 52, id(my_font_s), "%3.0f°C", id(my_climate).target_temperature_low);
+
+        }else /*----------------------- Выводим меню --------------------*/
         {
-            it.filled_rectangle(100, 16, 20, 9);
-            it.print(107, 14, id(my_font_s), COLOR_OFF, "2");
+
+          if (id(display_menu) == 1) 
+          {
+            it.rectangle(0, 1, 51, 11);
+          }
+          it.printf(50, 0, id(my_font_s),  TextAlign::TOP_RIGHT, "EXIT-");
+
+          it.printf(50, 12, id(my_font_s), TextAlign::TOP_RIGHT, "BOILING:"); 
+          if (id(display_menu) == 2)
+          {
+            it.rectangle(50, 13, 31, 11);
+            it.printf(50, 12, id(my_font_s)," %3.0f°C", id(boiling_temperature_low));            
+          } else if (id(display_menu) == 20) 
+          {
+            it.filled_rectangle(50, 13, 31, 11);
+            it.printf(50, 12, id(my_font_s), COLOR_OFF, " %3.0f°C", id(boiling_temperature_low));            
+          }else
+          {
+            it.printf(50, 12, id(my_font_s)," %3.0f°C", id(boiling_temperature_low));
+          }
+
+          if (id(display_menu) == 3) 
+          {
+            it.rectangle(83, 13, 31, 11);
+            it.printf(83, 12, id(my_font_s), " %3.0f°C", id(boiling_temperature_high));            
+          } else if (id(display_menu) == 30) 
+          {
+            it.filled_rectangle(83, 13, 31, 11);
+            it.printf(83, 12, id(my_font_s), COLOR_OFF, " %3.0f°C", id(boiling_temperature_high));            
+          } else
+          {
+            it.printf(83, 12, id(my_font_s)," %3.0f°C", id(boiling_temperature_high));
+          }
+          
+          it.printf(50, 24, id(my_font_s), TextAlign::TOP_RIGHT, "TIME:");
+          if (id(display_menu) == 4) 
+          {
+            it.rectangle(50, 25, 40, 11);
+            it.printf(50, 24, id(my_font_s), " %3d min", id(boiling_time) / 60);          
+          } else if (id(display_menu) == 40) 
+          {
+            it.filled_rectangle(50, 25, 40, 11);
+            it.printf(50, 24, id(my_font_s), COLOR_OFF," %3d min", id(boiling_time) / 60);          
+          } else
+          {
+            it.printf(50, 24, id(my_font_s)," %3d min", id(boiling_time) / 60);
+          }          
+
+          it.printf(50, 36, id(my_font_s), TextAlign::TOP_RIGHT, "WAITING:"); 
+          if (id(display_menu) == 5)
+          {
+            it.rectangle(50, 37, 31, 11);
+            it.printf(50, 36, id(my_font_s), " %3.0f°C", id(waiting_temperature_low));            
+          } else if (id(display_menu) == 50)
+          {
+            it.filled_rectangle(50, 37, 31, 11);
+            it.printf(50, 36, id(my_font_s), COLOR_OFF, " %3.0f°C", id(waiting_temperature_low));            
+          } else
+          {
+            it.printf(50, 36, id(my_font_s)," %3.0f°C", id(waiting_temperature_low));
+          }
+          if (id(display_menu) == 6) 
+          {
+            it.rectangle(83, 37, 31, 11);
+            it.printf(83, 36, id(my_font_s), " %3.0f°C", id(waiting_temperature_high));            
+          } else if (id(display_menu) == 60) 
+          {
+            it.filled_rectangle(83, 37, 31, 11);
+            it.printf(83, 36, id(my_font_s), COLOR_OFF, " %3.0f°C", id(waiting_temperature_high));            
+          } else
+          {
+            it.printf(83, 36, id(my_font_s)," %3.0f°C", id(waiting_temperature_high));
+          }
+
+          if (id(display_menu) == 7) 
+          {
+            it.rectangle(0, 49, 51, 11);
+            it.printf(50, 48, id(my_font_s), TextAlign::TOP_RIGHT, "RESTART-");
+          }else
+          {
+            it.printf(50, 48, id(my_font_s), TextAlign::TOP_RIGHT, "RESTART-");
+          }
         }
-        
-        it.printf(1, 45, id(my_font), "%3.0f°C", id(temp_1).state);
-        
-        it.print(90, 34, id(my_font_s), "Target:");
-        
-        if (id(relay_1).state && id(device_mode) > 0)
-            it.printf(90, 52, id(my_font_s), "%3.0f°C", id(my_climate).target_temperature_high);
-        else
-            it.printf(90, 52, id(my_font_s), "%3.0f°C", id(my_climate).target_temperature_low);
-            
-        //it.printf(70, 30, id(my_font_s), "%.3f", id(temp_1).raw_state);
-        //it.printf(100, 30, id(my_font_s), "%.1f", id(temp_2).state);
-        
 
 #dallas:
 #  - pin: GPIO32
 #    update_interval: 10s
 
 # Individual sensors
-sensor:   
+sensor:
   - platform: uptime
     name: Uptime Sensor
     update_interval: 5min
@@ -170,6 +366,42 @@ sensor:
       then:
         - script.execute: check_mode
         - component.update: my_display
+  - platform: rotary_encoder
+    name: "Rotary Encoder 1"
+    id: rotary_encoder1
+    pin_a: GPIO14
+    pin_b: GPIO13
+    min_value: 1
+    max_value: 7
+    on_value:
+      then:
+        - lambda: |-
+            switch(id(display_menu))
+            {
+              case 0:
+              break;
+              case 20:
+                id(boiling_temperature_low) = id(rotary_encoder1).state;
+              break;
+              case 30:
+                id(boiling_temperature_high) = id(rotary_encoder1).state;
+              break;
+              case 40:
+                id(boiling_time) = id(rotary_encoder1).state * 60;
+              break;
+              case 50:
+                id(waiting_temperature_low) = id(rotary_encoder1).state;
+              break;
+              case 60:
+                id(waiting_temperature_high) = id(rotary_encoder1).state;
+              break;
+              default:
+                id(display_menu) = id(rotary_encoder1).state;
+              break;
+            };
+
+        - component.update: my_display
+
 
 switch:
   - platform: gpio
@@ -206,12 +438,9 @@ climate:
   - platform: bang_bang
     name: "Bang Bang Climate Controller"
     sensor: temp_1
-    default_target_temperature_low: 127 °C  #УСТАВКА КИПЯЧЕНИЯ минимальная
-    default_target_temperature_high: 133 °C #УСТАВКА КИПЯЧЕНИЯ максимальная
+    default_target_temperature_low: 127 °C
+    default_target_temperature_high: 133 °C
     id: my_climate
-    away_config:
-      default_target_temperature_low: 77 °C  #УСТАВКА ОЖИДАНИЯ минимальная
-      default_target_temperature_high: 83 °C #УСТАВКА ОЖИДАНИЯ минимальная
     visual:
       min_temperature: 20 °C
       max_temperature: 140 °C
