@@ -5,10 +5,6 @@ esphome:
   on_boot:
     then:
       - output.turn_on: rotary_encoder_power_pin
-      - lambda: |-
-          auto call = id(climate1).make_call();
-          call.set_mode("OFF");
-          call.perform();
 
 esp32:
   board: lolin_s2_mini
@@ -118,6 +114,10 @@ sensor:
             target_temperature: !lambda "return id(climate1).target_temperature - 1;"
         - component.update: ssd
 
+  - platform: pid
+    name: "PID Climate Result"
+    type: RESULT
+
 binary_sensor: # exposes online status
   - platform: status
     name: "Sensor Status"
@@ -154,7 +154,7 @@ binary_sensor: # exposes online status
     name: "Onboard btn"
     filters:
       - delayed_on: 10ms
-  
+
 text_sensor:
   - platform: wifi_info
     ip_address: # exposes the IP Address when connected
