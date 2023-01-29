@@ -1,0 +1,197 @@
+esphome:
+  name: regulator-s2
+  platformio_options:
+    board_build.f_cpu: 80000000L
+  on_boot:
+    then:
+      - output.turn_on: rotary_encoder_power_pin
+      - lambda: |-
+          auto call = id(climate1).make_call();
+          call.set_mode("OFF");
+          call.perform();
+
+esp32:
+  board: lolin_s2_mini
+
+# Enable logging
+logger:
+  #level: VERY_VERBOSE
+  level: DEBUG
+
+
+# Enable Home Assistant API
+api:
+  password: ""
+
+ota:
+  password: ""
+
+wifi:
+  ssid: "Nadtocheeva 5"
+  password: "123123123"
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Regulator Fallback Hotspot"
+    password: "123123123"
+
+web_server:
+  port: 80
+  include_internal: true
+  ota: true
+  local: true
+
+captive_portal:
+
+i2c:
+  id: i2c_component
+  sda: 38
+  scl: 16
+  frequency: 400kHz
+
+font:
+  - file: "fonts/tahoma.ttf"
+    id: font16
+    size: 16
+  - file: "fonts/tahoma.ttf"
+    id: font12
+    size: 12
+  - file: "fonts/tahoma.ttf"
+    id: font28
+    size: 30
+
+display:
+  - platform: ssd1306_i2c
+    id: ssd
+    model: "SSD1306 128x32"
+    address: 0x3c
+    lambda: |-
+      it.printf( 0, 0, id(font28), "%3.0f°C", id(climate1).current_temperature);
+      it.printf(80,14, id(font16), "%3.0f°C", id(climate1).target_temperature);
+      switch(id(climate1).action)
+      {
+        case climate::CLIMATE_ACTION_OFF:
+          it.print(76, 0, id(font12), "OFF    ");
+          break;
+        case climate::CLIMATE_ACTION_HEATING:
+          it.print(76, 0, id(font12), "HEATING");
+          break;
+        case climate::CLIMATE_ACTION_IDLE:
+          it.print(76, 0, id(font12), "IDLE   ");
+          break;
+        default:
+          it.print(76, 0, id(font12), "???   ");
+          break;
+      }
+
+spi:
+  miso_pin: 35
+  clk_pin: 18
+
+light:
+  - platform: status_led
+    name: "Switch state"
+    pin: 15
+
+sensor:
+  - platform: max6675
+    id: temperature_sensor
+    name: "Temperature"
+    cs_pin: 33
+    update_interval: 5s
+
+  - platform: rotary_encoder
+    id: encoder1
+    name: "Rotary Encoder"
+    pin_a: 21
+    pin_b: 17
+    on_clockwise:
+      then:
+        - climate.control:
+            id: climate1
+            target_temperature: !lambda "return id(climate1).target_temperature + 1;"
+        - component.update: ssd
+    on_anticlockwise:
+      then:
+        - climate.control:
+            id: climate1
+            target_temperature: !lambda "return id(climate1).target_temperature - 1;"
+        - component.update: ssd
+
+binary_sensor: # exposes online status
+  - platform: status
+    name: "Sensor Status"
+    
+  - platform: gpio
+    pin:
+      number: 34
+      inverted: true    
+    name: "Rotary encoder btn"
+    filters:
+      - delayed_on: 10ms
+    on_click:
+      min_length: 50ms
+      max_length: 350ms
+      then:
+        - lambda: |-
+            if (id(climate1).mode == climate::CLIMATE_MODE_OFF) { 
+              auto call = id(climate1).make_call();
+              call.set_mode("HEAT");
+              call.perform();
+            } else {
+              auto call = id(climate1).make_call();
+              call.set_mode("OFF");
+              call.perform();
+            }
+
+  - platform: gpio
+    pin:
+      number: 0
+      inverted: true
+      mode:
+        input: true
+        pullup: true
+    name: "Onboard btn"
+    filters:
+      - delayed_on: 10ms
+  
+text_sensor:
+  - platform: wifi_info
+    ip_address: # exposes the IP Address when connected
+      internal: true
+      id: wifi_ip_addr
+      name: "IP Address"
+    ssid: # exposes the SSID when connected
+      internal: true
+      id: wifi_ssid
+
+output:
+  - platform: ledc
+    pin: 12
+    id: pwm_output
+    frequency: 100Hz
+
+  - platform: gpio
+    pin:
+      number: 36
+    id: rotary_encoder_power_pin    
+
+climate:
+  - platform: pid
+    id: climate1
+    name: "PID Climate Controller"
+    sensor: temperature_sensor
+    visual:
+      min_temperature: 20
+      max_temperature: 200
+      temperature_step: 1
+    default_target_temperature: 30°C
+    heat_output: pwm_output
+    control_parameters:
+      kp: 0.49460
+      ki: 0.00487
+      kd: 12.56301
+#    on_state: 
+#      then:
+#        - component.update: ssd
+

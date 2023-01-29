@@ -200,10 +200,10 @@ script:
             }
 
 font:
-  - file: "tahoma.ttf"   
+  - file: "fonts/tahoma.ttf"   
     id: my_font
     size: 26                
-  - file: "tahoma.ttf"   
+  - file: "fonts/tahoma.ttf"   
     id: my_font_s
     size: 10
 spi:
